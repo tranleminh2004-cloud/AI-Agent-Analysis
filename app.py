@@ -75,7 +75,8 @@ with st.sidebar:
             "📊 1. Thực trạng Sử dụng AI", 
             "💡 2. Nhu cầu Tự động hóa", 
             "🧠 3. Đánh giá từ Chuyên gia",
-        ],
+            "🚀 4. Đề xuất Chiến lược (Toàn diện)"
+        ],  
         index=0
     )
     st.markdown("---")
@@ -200,4 +201,80 @@ else:
             
             st.markdown("*Lưu ý: Góc dưới bên phải (Năng lực AI cao + Can thiệp ít) là điểm 'ngọt' nhất để tự động hóa.*")
 
-   
+   # --------------------------------------------------------------------------
+    # TRANG 4: ĐỀ XUẤT CHIẾN LƯỢC TỔNG HỢP (KẾT HỢP FILE THỨ 4)
+    # --------------------------------------------------------------------------
+    elif page == "🚀 4. Đề xuất Chiến lược (Toàn diện)":
+        st.header("Chiến lược Tối ưu hóa: Năng lực AI vs Mức độ Quan trọng của Tác vụ")
+        st.markdown("Phân tích này kết hợp đánh giá khả năng công nghệ (từ chuyên gia) và chỉ số tính chất công việc **(Mức độ quan trọng - Importance & Mức lương bình quân - Wage)** từ O*NET.")
+        
+        if not filtered_task.empty and not filtered_expert.empty:
+            if 'Task' in filtered_expert.columns and 'Task' in filtered_task.columns:
+                
+                # 1. Tính trung bình năng lực AI theo tên Tác vụ
+                expert_agg = filtered_expert.groupby('Task', as_index=False)['Automation Capacity Rating'].mean()
+                
+                # 2. Lấy thông tin mức độ quan trọng và lương theo tên Tác vụ
+                task_agg = filtered_task.groupby('Task', as_index=False).agg({
+                    'Importance': 'mean',
+                    'Occupation Mean Annual Wage': 'mean'
+                })
+                
+                # 3. Gộp 2 bảng lại với nhau dựa trên cột 'Task'
+                merged_df = pd.merge(expert_agg, task_agg, on='Task', how='inner')
+                
+                if not merged_df.empty:
+                    # ---> ĐÂY LÀ DÒNG FIX LỖI QUAN TRỌNG NHẤT <---
+                    # Xử lý các tác vụ bị thiếu thông tin lương (NaN) để biểu đồ Plotly không bị lỗi
+                    mean_wage = merged_df['Occupation Mean Annual Wage'].mean()
+                    fill_value = mean_wage if not pd.isna(mean_wage) else 100000 
+                    merged_df['Occupation Mean Annual Wage'] = merged_df['Occupation Mean Annual Wage'].fillna(fill_value)
+                    # -----------------------------------------------
+
+                    col_w1, col_w2 = st.columns(2)
+                    col_w1.metric("Mức lương trung bình của nhóm phân tích", f"${fill_value:,.0f} / năm")
+                    col_w2.metric("Số lượng tác vụ lõi được map thành công", f"{len(merged_df)} tác vụ")
+                    
+                    st.subheader("🎯 Ma trận Ưu tiên: Tầm quan trọng (Importance) vs Năng lực AI (Capacity)")
+                    st.markdown("Xác định đâu là những **Tác vụ Quan trọng nhất (Lõi)** mà AI **có khả năng thay thế tốt nhất**.")
+                    
+                    # Vẽ Scatter Plot bubble với Size là mức lương
+                    fig_matrix = px.scatter(
+                        merged_df, 
+                        x='Importance', 
+                        y='Automation Capacity Rating',
+                        size='Occupation Mean Annual Wage',
+                        color='Automation Capacity Rating',
+                        hover_name='Task',
+                        color_continuous_scale='Turbo',
+                        labels={
+                            'Importance': 'Mức độ Quan trọng của Công việc',
+                            'Automation Capacity Rating': 'Năng lực AI giải quyết',
+                            'Occupation Mean Annual Wage': 'Mức lương'
+                        }
+                    )
+                    
+                    # Chia vạch trung vị cho ma trận
+                    med_imp = merged_df['Importance'].median()
+                    med_cap = merged_df['Automation Capacity Rating'].median()
+                    fig_matrix.add_hline(y=med_cap, line_dash="dot", line_color="red")
+                    fig_matrix.add_vline(x=med_imp, line_dash="dot", line_color="red")
+                    
+                    # Ghi chú vùng Quadrant
+                    fig_matrix.add_annotation(x=merged_df['Importance'].max(), y=merged_df['Automation Capacity Rating'].max(),
+                                              text="🌟 QUAN TRỌNG & DỄ TỰ ĐỘNG HÓA", showarrow=False, font=dict(color="green", size=12))
+                    
+                    fig_matrix.update_layout(height=600, plot_bgcolor='rgba(0,0,0,0)', xaxis=dict(showgrid=True, gridcolor='#e2e8f0'), yaxis=dict(showgrid=True, gridcolor='#e2e8f0'))
+                    st.plotly_chart(fig_matrix, use_container_width=True)
+                    
+                    st.markdown("---")
+                    st.subheader("📋 Bảng Đề Xuất Ưu Tiên Triển Khai AI Agent")
+                    
+                    # Lọc ra các tác vụ có Importance cao và AI Capacity cũng cao
+                    top_targets = merged_df[(merged_df['Importance'] >= med_imp) & (merged_df['Automation Capacity Rating'] >= med_cap)]
+                    st.dataframe(top_targets.sort_values(by='Automation Capacity Rating', ascending=False)[['Task', 'Automation Capacity Rating', 'Importance', 'Occupation Mean Annual Wage']].head(10), use_container_width=True)
+                    
+                else:
+                    st.warning("⚠️ Chưa tìm thấy sự trùng khớp tên tác vụ (Task).")
+            else:
+                st.error("⚠️ Dữ liệu bị thiếu cột 'Task'.")
